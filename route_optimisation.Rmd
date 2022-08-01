@@ -1,0 +1,176 @@
+---
+title: "Route_optimisation"
+author: "Theo"
+date: '2022-07-30'
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, echo=FALSE}
+library(tidygeocoder)
+library(sf)
+library(mapview)
+library(tigris)
+library(tidyverse)
+library(osmdata)
+library(osrm)
+library(nngeo)
+```
+
+
+```{r}
+customers = read.csv('customers_subset.csv', sep = ';')
+depots = read.csv('depots.csv', sep = ';')
+```
+
+## Geo-location data
+```{r}
+#customers_data
+head(customers[-c(1)])
+```
+
+```{r}
+#depot data
+head(depots)
+```
+
+##Geo coding and visualising customers
+
+```{r}
+#geo_coding
+gis_sf = customers %>% st_as_sf(coords = c("Longitude","Latitude"), crs = 4326)
+
+#visualisation
+gis_sf%>% mapview()
+#gis_sf%>% mapview(col.regions = 'yellow',
+#                  alpha.regions = 0.1)
+```
+
+
+```{r}
+#obtaining a bounding box for the gauteng region
+sa_bbox = getbb('guateng, south africa')
+```
+
+#visualisng the gauteng road network
+
+```{r}
+#obtaining a mappings for highways
+#sa_highways_sf = opq(bbox = 'gauteng, south africa')%>%
+#  add_osm_feature(key ='highway', 
+#                  value = c('motorway', 'primary', #'motorway_link', 'primary_link'))%>% 
+#  osmdata_sf()
+
+#obtaining mappings for streets
+#sa_medium_streets_sf = opq(bbox = 'gauteng, south africa')%>%
+#  add_osm_feature(key ='highway', 
+#                  value = c('secondary', 'secondary_link'))%>% 
+#  osmdata_sf()
+#
+#visualising both the streets anh highways
+
+#mapview(
+#  sa_medium_streets_sf$osm_lines, color = 'yellow', 
+#  layer.name = 'Streets'
+#) +
+#  mapview(
+#    sa_highways_sf$osm_lines, color = 'blue',
+#    layer.name = 'Highways'
+#  ) 
+
+```
+
+```{r}
+#geo_coding
+customers_jhb_sf = customers %>% st_as_sf(coords = c("Longitude","Latitude"),
+                          crs = 4326)
+
+depots_sf = depots %>% st_as_sf(coords = c("Longitude","Latitude"),
+                                      crs = 4326)
+```
+
+
+#visualising both customers and depots
+```{r}
+mapview (
+    customers_jhb_sf,
+    col.region = 'cyan',
+    color = 'white',
+    layer.name = 'Customers',
+    cex = 6
+  ) +
+  mapview(
+        depots_sf,
+        col.region = 'magenta',
+        color = 'white',
+        layer.name = 'Warehouses',
+        cex = 5
+  )
+
+```
+
+#Computing nearest neighbours of customers to 
+
+```{r}
+# nearest neighbors
+network_ids = st_nn(
+  x = depots_sf,
+  y = customers_jhb_sf,
+  #k = 5,
+  k = nrow(customers_jhb_sf),
+  progress = T
+)
+
+network_lines_sf = st_connect(
+  x = depots_sf,
+  y = customers_jhb_sf,
+  ids = network_ids
+)
+```
+
+## Computing the shortest route of customers to depot
+```{r}
+# nodes
+
+nodes_tbl = network_ids %>%
+  enframe(
+    name = 'distribution_id',
+    value = 'customer_id') %>%
+  unnest(customer_id)
+
+shortest_network_sf = network_lines_sf%>%
+  st_bind_cols(nodes_tbl)%>%
+  mutate(len = st_length(geometry))%>%
+  relocate(len, .after = customer_id)%>%
+  group_by(customer_id)%>%
+  filter(len == min(len)) %>%ungroup()
+```
+
+#visualising the shortest routes
+```{r}
+#viz
+
+mapview (
+  customers_jhb_sf,
+  col.region = 'cyan',
+  color = 'white',
+  layer.name = 'Customers',
+  cex = 6
+) +
+  mapview(
+    depots_sf,
+    col.region = 'magenta',
+    color = 'white',
+    layer.name = 'Warehouses',
+    cex = 5
+  )+
+  mapview(shortest_network_sf,
+          color = 'yellow'
+  )
+
+```
+
